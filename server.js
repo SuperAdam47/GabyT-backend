@@ -17,37 +17,52 @@ app.post(cfg.route + "/login", (req, res) => {
   auth.login(req).then(user => {
     if (user) res.json(user)
     else res.send("ok")
-  }).catch(ex => {console.log(ex); res.status(500).send("Login failure")})
+  }).catch(ex => res.status(500).send("Login failure"))
 })
 
 app.post(cfg.route + "/juice", (req, res) => {
   auth.verify(req).then(user => {
     const q = req.body
-    const ref = q.link ? browser.load(q.link).then(page => page.txt) : Promise.resolve()
-    ref.then(txt => gpt.lang(juice[q.task](q), q.doc, txt, q.heat || juice.heated.includes(q.task)))
+    const r = q.task == "custom"
+      ? db.prompts.findAll({ where: { userID: user.uid, promptName: q.value } })
+        .then(([result]) => Object.assign(q, { persona: result.persona, value: result.prompt, link: result.referenceink }))
+      : Promise.resolve()
+    r.then(() => q.link ? browser.load(q.link).then(page => page.txt) : Promise.resolve())
+      .then(txt => gpt.lang(juice[q.task](q), q.doc, txt, q.heat || juice.heated.includes(q.task)))
       .then(result => res.json({ result }))
-      .catch(ex => res.status(400).send("Server error:" + JSON.stringify(ex)))
+      .catch(ex => res.status(400).send("Server error:" + ex))//JSON.stringify(ex)))
   }).catch(ex => res.status(500).send(ex))
 })
 
 app.use(cfg.route + "/prompts", (req, res) => {
   auth.verify(req).then(user => (() => {
-    //if (req.method == "DELETE" && !req.body.ID) throw false
-    if (["PUT", "DELETE"].includes(req.method) && !req.body.ID) throw false
+    if (req.method == "DELETE" && !req.body.ID) throw false
     const criteria = { where: { userID: user.uid } }
     if (req.body?.ID) criteria.where.ID = req.body.ID
-    let prm = Promise.resolve()
+
     switch (req.method) {
       case "GET": return db.prompts.findAll(criteria).then(rec => res.json(rec))
-      case "PUT": prm = db.prompts.destroy(criteria) // next recreate
       case "POST": req.body.userID = user.uid
-        return prm.then(() => db.prompts.create(req.body))
-          .then(record => res.json({ id: record.ID }))
-      /*    case "POST": req.body.userID = user.uid
-              return (req.body.ID ? db.prompts.destroy(criteria) : Promise.resolve())
-                .then(() => db.prompts.create(req.body))
-                .then(record => res.json({ id: record.id })) */
-      case "DELETE": return db.prompts.destroy(criteria).then(() => res.send("ok"))
+        return (req.body.ID ? db.prompts.destroy(criteria) : Promise.resolve())
+          .then(() => db.prompts.create(req.body))
+          .then(record => res.json(record.ID))
+      case "DELETE": return db.prompts.destroy(criteria).then(result => res.send("ok"))
+      default: throw false
+    }
+  })().catch(ex => res.status(400).send("Invalid request"))
+  ).catch(ex => res.status(500).send(ex))
+})
+
+app.use(cfg.route + "/user", (req, res) => {
+  auth.verify(req).then(user => (() => {
+    const criteria = { where: { userID: user.uid } }
+    
+    switch (req.method) {
+      case "GET": return db.profiles.findAll(criteria).then(rec => res.json(rec))
+      case "POST": req.body.userID = user.uid
+        return (req.body.ID ? db.profiles.destroy(criteria) : Promise.resolve())
+          .then(() => db.profiles.create(req.body))
+          .then(record => res.json(record.ID))
       default: throw false
     }
   })().catch(ex => res.status(400).send("Invalid request"))
