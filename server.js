@@ -17,7 +17,7 @@ app.post(cfg.route + "/login", (req, res) => {
   auth.login(req).then(user => {
     if (user) res.json(user)
     else res.send("ok")
-  }).catch(ex => res.status(500).send("Login failure"))
+  }).catch(ex => res.status(500).send("Login failure:" + ex))
 })
 
 app.post(cfg.route + "/juice", (req, res) => {
@@ -30,7 +30,7 @@ app.post(cfg.route + "/juice", (req, res) => {
     r.then(() => q.link ? browser.load(q.link).then(page => page.txt) : Promise.resolve())
       .then(txt => gpt.lang(juice[q.task](q), q.doc, txt, q.heat || juice.heated.includes(q.task)))
       .then(result => res.json({ result }))
-      .catch(ex => res.status(400).send("Server error:" + ex))//JSON.stringify(ex)))
+      .catch(ex => res.status(400).send("Server error:" + JSON.stringify(ex)))
   }).catch(ex => res.status(500).send(ex))
 })
 
@@ -49,7 +49,7 @@ app.use(cfg.route + "/prompts", (req, res) => {
       case "DELETE": return db.prompts.destroy(criteria).then(result => res.send("ok"))
       default: throw false
     }
-  })().catch(ex => res.status(400).send("Invalid request"))
+  })().catch(ex => res.status(400).send("Invalid request:" + JSON.stringify(ex)))
   ).catch(ex => res.status(500).send(ex))
 })
 
@@ -60,8 +60,11 @@ app.use(cfg.route + "/user", (req, res) => {
     switch (req.method) {
       case "GET": return db.profiles.findAll(criteria).then(rec => res.json(rec))
       case "POST": req.body.userID = user.uid
-        return (req.body.ID ? db.profiles.destroy(criteria) : Promise.resolve())
-          .then(() => db.profiles.create(req.body))
+        return db.profiles.destroy(criteria).catch(ex => {})
+          .then(() => {
+            console.log(req.body)
+            return db.profiles.create(req.body)
+          })
           .then(record => res.json(record.ID))
       default: throw false
     }
