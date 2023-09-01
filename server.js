@@ -1,7 +1,7 @@
 const express = require("express")
 const bodyParser = require("body-parser")
 const app = express()
-const cfg = require("./config.json")
+const cfg = require(process.argv[2])
 const db = require("./lib/db.js")(cfg)
 const auth = require("./lib/auth.js")(db, cfg)
 const gpt = require("./lib/gpt.js")(cfg)
@@ -53,23 +53,41 @@ app.use(cfg.route + "/prompts", (req, res) => {
   ).catch(ex => res.status(500).send(ex))
 })
 
-app.use(cfg.route + "/user", (req, res) => {
-  auth.verify(req).then(user => (() => {
-    const criteria = { where: { userID: user.uid } }
-    
-    switch (req.method) {
-      case "GET": return db.profiles.findAll(criteria).then(rec => res.json(rec))
-      case "POST": req.body.userID = user.uid
-        return db.profiles.destroy(criteria).catch(ex => {})
-          .then(() => {
-            console.log(req.body)
-            return db.profiles.create(req.body)
-          })
-          .then(record => res.json(record.ID))
-      default: throw false
-    }
-  })().catch(ex => res.status(400).send("Invalid request"))
+app.post(cfg.route + "/user", (req, res) => {
+  return db.users.findAll({ where: { email: req.body.email } })
+    .then(rec => {
+      if (!req.body.nickname) throw "Please provide a name"
+      if (rec.length) res.status(400).send("User already exists")
+      else db.users.create({
+          username: req.body.email,
+          email: req.body.email,
+          password: auth.encrypt(req.body.password),
+          "2FATempPwd": "",
+          blacklist: 0
+        }).then(record => {
+          req.body.firstName = req.body.nickname
+          req.body.userID = record.ID
+          return db.profiles.create(req.body)
+        }).then(() => res.send("ok"))
+    }).catch(ex => res.status(400).send("Invalid request:" + ex))
+  })
+
+app.get(cfg.route + "/user", (req, res) => {
+  auth.verify(req).then(user => db.profiles.findAll({ where: { userID: user.uid } })
+    .then(rec => res.json(rec))
+    .catch(ex => res.status(400).send("Invalid request:" + ex))
   ).catch(ex => res.status(500).send(ex))
+})
+
+app.put(cfg.route + "/user", (req, res) => {
+  auth.verify(req).then(user => {
+    req.body.userID = user.uid
+    db.profiles.destroy({ where: { userID: user.uid } })
+      .catch(ex => { })
+      .then(() => db.profiles.create(req.body))
+      .then(record => res.send(record.ID))
+      .catch(ex => res.status(400).send("Invalid request:" + ex))
+  }).catch(ex => res.status(500).send(ex))
 })
 
 app.get(cfg.route + "/scrape", (req, res) => {
