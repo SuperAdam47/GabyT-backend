@@ -45,7 +45,7 @@ app.use(cfg.route + "/prompts", (req, res) => {
       case "POST": req.body.userID = user.uid
         return (req.body.ID ? db.prompts.destroy(criteria) : Promise.resolve())
           .then(() => db.prompts.create(req.body))
-          .then(record => res.json(record.ID))
+          .then(record => res.json(record.dataValues))
       case "DELETE": return db.prompts.destroy(criteria).then(result => res.send("ok"))
       default: throw false
     }
@@ -68,7 +68,7 @@ app.post(cfg.route + "/user", (req, res) => {
           req.body.firstName = req.body.nickname
           req.body.userID = record.ID
           return db.profiles.create(req.body)
-        }).then(() => res.send("ok"))
+        }).then(record => res.send(record.dataValues))
     }).catch(ex => res.status(400).send("Invalid request:" + ex))
   })
 
@@ -85,7 +85,7 @@ app.put(cfg.route + "/user", (req, res) => {
     db.profiles.destroy({ where: { userID: user.uid } })
       .catch(ex => { })
       .then(() => db.profiles.create(req.body))
-      .then(record => res.send(record.ID))
+      .then(record => res.send(record.dataValues))
       .catch(ex => res.status(400).send("Invalid request:" + ex))
   }).catch(ex => res.status(500).send(ex))
 })
