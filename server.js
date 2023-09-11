@@ -43,9 +43,27 @@ app.use(cfg.route + "/prompts", (req, res) => {
     switch (req.method) {
       case "GET": return db.prompts.findAll(criteria).then(rec => res.json(rec))
       case "POST": req.body.userID = user.uid
+        const q = req.body // hack
+        console.log(req.body)
+        let id
         return (req.body.ID ? db.prompts.destroy(criteria) : Promise.resolve())
-          .then(() => db.prompts.create(req.body))
-          .then(record => res.json(record.dataValues))
+          .then(() => req.body.promptName ? db.prompts.create(req.body) : Promise.resolve())
+          //.then(record => res.json(record.dataValues))
+          // duplicated from juice
+          .then(rec => {
+            console.log(rec)
+            id = rec?.ID
+            return q.referencelink
+              ? browser.load(q.referencelink).then(page => page.txt)
+              : Promise.resolve()
+          })
+          .then(txt => gpt.lang(q.prompt, q.doc, txt))
+          .then(result => res.json({ result, id }))
+          .catch(ex => {
+            console.log(ex)
+            return res.status(400).send("Server error:" + JSON.stringify(ex))
+        })
+      ///////////
       case "DELETE": return db.prompts.destroy(criteria).then(result => res.send("ok"))
       default: throw false
     }
@@ -59,18 +77,18 @@ app.post(cfg.route + "/user", (req, res) => {
       if (!req.body.nickname) throw "Please provide a name"
       if (rec.length) res.status(400).send("User already exists")
       else db.users.create({
-          username: req.body.email,
-          email: req.body.email,
-          password: auth.encrypt(req.body.password),
-          "2FATempPwd": "",
-          blacklist: 0
-        }).then(record => {
-          req.body.firstName = req.body.nickname
-          req.body.userID = record.ID
-          return db.profiles.create(req.body)
-        }).then(record => res.send(record.dataValues))
+        username: req.body.email,
+        email: req.body.email,
+        password: auth.encrypt(req.body.password),
+        "2FATempPwd": "",
+        blacklist: 0
+      }).then(record => {
+        req.body.firstName = req.body.nickname
+        req.body.userID = record.ID
+        return db.profiles.create(req.body)
+      }).then(record => res.send(record.dataValues))
     }).catch(ex => res.status(400).send("Invalid request:" + ex))
-  })
+})
 
 app.get(cfg.route + "/user", (req, res) => {
   auth.verify(req).then(user => db.profiles.findAll({ where: { userID: user.uid } })
