@@ -1,5 +1,6 @@
 const express = require("express")
 const bodyParser = require("body-parser")
+const mail = require('@sendgrid/mail')
 const app = express()
 const cfg = require(process.argv[2])
 const db = require("./lib/db.js")(cfg)
@@ -18,20 +19,6 @@ app.post(cfg.route + "/login", (req, res) => {
     if (user) res.json(user)
     else res.send("ok")
   }).catch(ex => res.status(500).send("Login failure:" + ex))
-})
-
-app.post(cfg.route + "/juice", (req, res) => {
-  auth.verify(req).then(user => {
-    const q = req.body
-    const r = q.task == "custom"
-      ? db.prompts.findAll({ where: { userID: user.uid, promptName: q.value } })
-        .then(([result]) => Object.assign(q, { persona: result.persona, value: result.prompt, link: result.referenceink }))
-      : Promise.resolve()
-    r.then(() => q.link ? browser.load(q.link).then(page => page.txt) : Promise.resolve())
-      .then(txt => gpt.lang(juice[q.task](q), q.doc, txt, q.heat || juice.heated.includes(q.task)))
-      .then(result => res.json({ result }))
-      .catch(ex => res.status(400).send("Server error:" + JSON.stringify(ex)))
-  }).catch(ex => res.status(500).send(ex))
 })
 
 app.use(cfg.route + "/prompts", (req, res) => {
@@ -62,7 +49,7 @@ app.use(cfg.route + "/prompts", (req, res) => {
           .catch(ex => {
             console.log(ex)
             return res.status(400).send("Server error:" + JSON.stringify(ex))
-        })
+          })
       ///////////
       case "DELETE": return db.prompts.destroy(criteria).then(result => res.send("ok"))
       default: throw false
@@ -71,6 +58,7 @@ app.use(cfg.route + "/prompts", (req, res) => {
   ).catch(ex => res.status(500).send(ex))
 })
 
+// create user
 app.post(cfg.route + "/user", (req, res) => {
   return db.users.findAll({ where: { email: req.body.email } })
     .then(rec => {
@@ -108,10 +96,37 @@ app.put(cfg.route + "/user", (req, res) => {
   }).catch(ex => res.status(500).send(ex))
 })
 
+app.post(cfg.route + "/juice", (req, res) => {
+  auth.verify(req).then(user => {
+    const q = req.body
+    const r = q.task == "custom"
+      ? db.prompts.findAll({ where: { userID: user.uid, promptName: q.value } })
+        .then(([result]) => Object.assign(q, { persona: result.persona, value: result.prompt, link: result.referenceink }))
+      : Promise.resolve()
+    r.then(() => q.link ? browser.load(q.link).then(page => page.txt) : Promise.resolve())
+      .then(txt => gpt.lang(juice[q.task](q), q.doc, txt, q.heat || juice.heated.includes(q.task)))
+      .then(result => res.json({ result }))
+      .catch(ex => res.status(400).send("Server error"))
+  }).catch(ex => res.status(500).send(ex))
+})
+
 app.get(cfg.route + "/scrape", (req, res) => {
   browser.load(req.query.url)
     .then(page => res.send(page[req.query.target || "html"]))
     .catch(ex => res.status(400).send("Server error"))
+})
+
+app.post(cfg.route + "/message", (req, res) => {
+  auth.verify(req).then(user => {
+    console.log(user)
+    mail.send({
+      from: cfg.mailFrom,
+      to: cfg.mailTo,
+      subject: req.body.subject,
+      text: `req.body.message\n\n${user.email}`
+    }).then(() => res.send("ok"))
+    .catch(ex => { console.log(ex); res.status(400).send("Server error")})
+  }).catch(ex => res.status(500).send(ex))
 })
 
 app.listen(cfg.port, "localhost", () => { console.log(`Server listening on ${cfg.port}`) })
